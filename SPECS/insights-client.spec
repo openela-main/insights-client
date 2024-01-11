@@ -1,27 +1,17 @@
 %define _binaries_in_noarch_packages_terminate_build 0
 
+%global __python %{_libexecdir}/platform-python
+
 Name:                   insights-client
 Summary:                Uploads Insights information to Red Hat on a periodic basis
-Version:                3.1.7
-Release:                12%{?dist}
-Source0:                https://github.com/RedHatInsights/insights-client/releases/download/v%{version}/insights-client-%{version}.tar.gz
-Source1:                https://api.access.redhat.com/r/insights/v1/static/core/insights-core.egg
-Source2:                https://api.access.redhat.com/r/insights/v1/static/core/insights-core.egg.asc
+Version:                3.2.2
+Release:                1%{?dist}
+Source0:                https://github.com/RedHatInsights/insights-client/releases/download/v%{version}/insights-client-%{version}.tar.xz
 Epoch:                  0
 License:                GPLv2+
 URL:                    https://console.redhat.com/insights
 Group:                  Applications/System
 Vendor:                 Red Hat, Inc.
-
-#
-# patches_ignore=DROP-IN-RPM
-# patches_base=3.1.7
-Patch0001: 0001-fix-remove-PathExists-condition-from-unit.patch
-
-Provides: redhat-access-insights = %{version}-%{release}%{?dist}
-
-Obsoletes: redhat-access-insights <= 1.0.13-2
-Obsoletes: redhat-access-proactive <= 1.0.13-2
 
 BuildArch: noarch
 
@@ -29,7 +19,6 @@ Requires: tar
 Requires: gpg
 Requires: pciutils
 
-%global __python3 /usr/libexec/platform-python
 %{?__python3:Requires: %{__python3}}
 %{?systemd_requires}
 Requires: python3-requests >= 2.6
@@ -38,12 +27,16 @@ Requires: python3-magic
 Requires: python3-six
 Requires: platform-python-setuptools
 Requires: coreutils
+Requires: ((selinux-policy >= 3.14.3-126) if selinux-policy)
+
 BuildRequires: wget
 BuildRequires: binutils
 BuildRequires: python3-devel
-BuildRequires: platform-python-devel
 BuildRequires: systemd
 BuildRequires: pam
+BuildRequires: meson
+BuildRequires: python3-pytest
+BuildRequires: systemd-rpm-macros
 Requires(post): policycoreutils-python-utils
 
 
@@ -55,15 +48,12 @@ Sends insightful information to Red Hat for automated analysis
 
 
 %build
-%{configure} PYTHON=%{__python3}
-%{__make}
+%{meson} -Dpython=%{__python}
+%{meson_build}
 
 
 %install
-%{make_install}
-%{__install} -D -m 644 %{_builddir}/%{name}-%{version}/data/insights-client.motd %{buildroot}/%{_sysconfdir}/insights-client/insights-client.motd
-%{__install} -D -m 644 %{SOURCE1} %{buildroot}%{_sysconfdir}/insights-client/rpm.egg
-%{__install} -D -m 644 %{SOURCE2} %{buildroot}%{_sysconfdir}/insights-client/rpm.egg.asc
+%{meson_install}
 
 # Create different insights directories in /var
 mkdir -p %{buildroot}%{_localstatedir}/log/insights-client/
@@ -84,8 +74,11 @@ if [ -d %{_sysconfdir}/motd.d ]; then
     fi
 fi
 
-if [ -x /usr/sbin/selinuxenabled ] && /usr/sbin/selinuxenabled; then
-    /usr/sbin/semanage permissive --add insights_client_t || true
+if [ $1 -eq 2 ]; then
+    /usr/sbin/semanage permissive --list | grep -q 'insights_client_t'
+    if [ $? -eq 0 ]; then
+        /usr/sbin/semanage permissive --delete insights_client_t &>/dev/null
+    fi
 fi
 
 %preun
@@ -98,12 +91,6 @@ fi
 %systemd_postun %{name}.service
 %systemd_postun %{name}-boot.service
 
-if [ $1 -eq 0 ]; then
-    if [ -x /usr/sbin/selinuxenabled ] && /usr/sbin/selinuxenabled; then
-        /usr/sbin/semanage permissive --delete insights_client_t || true
-    fi
-fi
-
 # Clean up files created by insights-client that are unowned by the RPM
 if [ $1 -eq 0 ]; then
     rm -f %{_sysconfdir}/cron.daily/insights-client
@@ -113,6 +100,7 @@ if [ $1 -eq 0 ]; then
     rm -rf %{_localstatedir}/lib/insights
     rm -rf %{_localstatedir}/log/insights-client
     rm -f %{_sysconfdir}/insights-client/.*.etag
+    rm -f %{_sysconfdir}/logrotate.d/insights-client
 fi
 
 %files
@@ -132,6 +120,8 @@ fi
 %attr(700,root,root) %dir %{_localstatedir}/cache/insights-client/
 %attr(750,root,root) %dir %{_localstatedir}/cache/insights/
 %attr(750,root,root) %dir %{_localstatedir}/lib/insights/
+%{_sysconfdir}/logrotate.d/insights-client
+%{_tmpfilesdir}/insights-client.conf
 
 
 %doc
@@ -141,8 +131,40 @@ fi
 
 
 %changelog
-* Mon Jan 30 2023 Link Dupont <link@redhat.com> - 3.1.7-12
-- Conditionally run semanage only when SELinux is enabled (RHBZ#2150908)
+* Thu Sep 21 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.2-1
+- Update version to 3.2.2
+- New egg RPM version 3.2.15 (RHEL-3304)
+
+* Mon Sep 04 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.1-0
+- Update version to 3.2.1
+- New egg RPM version 3.2.9 (RHBZ#1955724)
+
+* Thu Aug 24 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-7
+- Remove printing to stdout semanage postscript 
+
+* Wed Aug 23 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-6
+- Remove an option in the semanage command
+
+* Tue Aug 22 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-5
+- Fix requires selinux-policy and post script
+
+* Tue Aug 22 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-4
+- Add postun script and fix changelog
+
+* Tue Aug 15 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-3
+- Remove SELinux policy on post scripts (RHBZ#2226686)
+
+* Thu Jun 29 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-2
+- Add gating.yaml file
+
+* Fri Jun 23 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-1
+- Add logrotate (RHBZ#1940267)
+- Fix constant not imported (RHBZ#2218286)
+- Update to cgroupv2 (RHBZ#2218284)
+- New upstream release
+
+* Thu May 18 2023 Pino Toscano <ptoscano@redhat.com> - 0:3.1.7-13
+- Conditionally run semanage only when SELinux is enabled (RHBZ#2196844)
 
 * Fri Nov 11 2022 Alba Hita Catala <ahitacat@redhat.com> 0:3.1.7-11
 - Set SELinux policy to permissive for rhcd_t module (RHBZ#2141444)
@@ -195,7 +217,7 @@ fi
 * Thu Aug 20 2020 Link Dupont <link@redhat.com> - 3.1.0-3
 - Backport patch to disable sleeping a systemd unit (RHBZ#1870656)
 
-* Tue Aug 11 2020 Link Dupont <link@redhat.com> - 3.1.0-2
+* Tue Aug 11 2020 Link Dupont <link@redhat.com> - 3.1.0-2Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-6
 - Disable automatic registration of insights-client (RHBZ#1868116)
 
 * Thu Jul 23 2020 Link Dupont <link@redhat.com> - 3.1.0-1
