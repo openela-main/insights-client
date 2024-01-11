@@ -1,27 +1,17 @@
 %define _binaries_in_noarch_packages_terminate_build 0
 
+%global __python %{_libexecdir}/platform-python
+
 Name:                   insights-client
 Summary:                Uploads Insights information to Red Hat on a periodic basis
-Version:                3.1.7
-Release:                12.1%{?dist}
-Source0:                https://github.com/RedHatInsights/insights-client/releases/download/v%{version}/insights-client-%{version}.tar.gz
-Source1:                https://api.access.redhat.com/r/insights/v1/static/core/insights-core.egg
-Source2:                https://api.access.redhat.com/r/insights/v1/static/core/insights-core.egg.asc
+Version:                3.2.2
+Release:                1%{?dist}
+Source0:                https://github.com/RedHatInsights/insights-client/releases/download/v%{version}/insights-client-%{version}.tar.xz
 Epoch:                  0
 License:                GPLv2+
 URL:                    https://console.redhat.com/insights
 Group:                  Applications/System
 Vendor:                 Red Hat, Inc.
-
-#
-# patches_ignore=DROP-IN-RPM
-# patches_base=3.1.7
-Patch0001: 0001-fix-remove-PathExists-condition-from-unit.patch
-
-Provides: redhat-access-insights = %{version}-%{release}%{?dist}
-
-Obsoletes: redhat-access-insights <= 1.0.13-2
-Obsoletes: redhat-access-proactive <= 1.0.13-2
 
 BuildArch: noarch
 
@@ -29,7 +19,6 @@ Requires: tar
 Requires: gpg
 Requires: pciutils
 
-%global __python3 /usr/libexec/platform-python
 %{?__python3:Requires: %{__python3}}
 %{?systemd_requires}
 Requires: python3-requests >= 2.6
@@ -38,12 +27,16 @@ Requires: python3-magic
 Requires: python3-six
 Requires: python3dist(setuptools)
 Requires: coreutils
+Requires: ((selinux-policy >= 38.1.21-1) if selinux-policy)
+
 BuildRequires: wget
 BuildRequires: binutils
 BuildRequires: python3-devel
-BuildRequires: platform-python-devel
 BuildRequires: systemd
 BuildRequires: pam
+BuildRequires: meson
+BuildRequires: python3-pytest
+BuildRequires: systemd-rpm-macros
 Requires(post): policycoreutils-python-utils
 
 
@@ -55,15 +48,12 @@ Sends insightful information to Red Hat for automated analysis
 
 
 %build
-%{configure} PYTHON=%{__python3}
-%{__make}
+%{meson} -Dpython=%{__python}
+%{meson_build}
 
 
 %install
-%{make_install}
-%{__install} -D -m 644 %{_builddir}/%{name}-%{version}/data/insights-client.motd %{buildroot}/%{_sysconfdir}/insights-client/insights-client.motd
-%{__install} -D -m 644 %{SOURCE1} %{buildroot}%{_sysconfdir}/insights-client/rpm.egg
-%{__install} -D -m 644 %{SOURCE2} %{buildroot}%{_sysconfdir}/insights-client/rpm.egg.asc
+%{meson_install}
 
 # Create different insights directories in /var
 mkdir -p %{buildroot}%{_localstatedir}/log/insights-client/
@@ -84,8 +74,11 @@ if [ -d %{_sysconfdir}/motd.d ]; then
     fi
 fi
 
-if [ -x /usr/sbin/selinuxenabled ] && /usr/sbin/selinuxenabled; then
-    /usr/sbin/semanage permissive --add insights_client_t || true
+if [ $1 -eq 2 ]; then
+    /usr/sbin/semanage permissive --list | grep -q 'insights_client_t'
+    if [ $? -eq 0 ]; then
+        /usr/sbin/semanage permissive --delete insights_client_t &>/dev/null
+    fi
 fi
 
 %preun
@@ -98,12 +91,6 @@ fi
 %systemd_postun %{name}.service
 %systemd_postun %{name}-boot.service
 
-if [ $1 -eq 0 ]; then
-    if [ -x /usr/sbin/selinuxenabled ] && /usr/sbin/selinuxenabled; then
-        /usr/sbin/semanage permissive --delete insights_client_t || true
-    fi
-fi
-
 # Clean up files created by insights-client that are unowned by the RPM
 if [ $1 -eq 0 ]; then
     rm -f %{_sysconfdir}/cron.daily/insights-client
@@ -113,6 +100,7 @@ if [ $1 -eq 0 ]; then
     rm -rf %{_localstatedir}/lib/insights
     rm -rf %{_localstatedir}/log/insights-client
     rm -f %{_sysconfdir}/insights-client/.*.etag
+    rm -f %{_sysconfdir}/logrotate.d/insights-client
 fi
 
 
@@ -137,6 +125,8 @@ rm -rf %{buildroot}
 %attr(700,root,root) %dir %{_localstatedir}/cache/insights-client/
 %attr(750,root,root) %dir %{_localstatedir}/cache/insights/
 %attr(750,root,root) %dir %{_localstatedir}/lib/insights/
+%{_sysconfdir}/logrotate.d/insights-client
+%{_tmpfilesdir}/insights-client.conf
 
 %doc
 %defattr(-, root, root)
@@ -145,8 +135,31 @@ rm -rf %{buildroot}
 
 
 %changelog
-* Fri May 26 2023 Pino Toscano <ptoscano@redhat.com> - 0:3.1.7-12.1
-- Conditionally run semanage only when SELinux is enabled (RHBZ#2210269)
+* Thu Sep 14 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.2-1
+- Update version to 3.2.2
+- New egg RPM version 3.2.15 (RHEL-3307)
+
+* Mon Sep 04 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.1-0
+- Update version to 3.2.1
+- New egg RPM version 3.2.9 (RHBZ#2236120)
+
+* Thu Aug 24 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-4
+- Remove printing to stdout semanage postscript
+
+* Wed Aug 23 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-3
+- Remove an option in the semanage command
+
+* Wed Aug 23 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-2
+- Remove setting selinux permissive insights_client_t scripts (RHBZ#2226684) 
+
+* Fri Jun 23 2023 Alba Hita Catala <ahitacat@redhat.com> - 0:3.2.0-1
+- Add logrotate (RHBZ#2189281)
+- Fix constant not imported (RHBZ#2091919)
+- Update to cgroupv2 (RHBZ#2148270)
+- New upstream release
+
+* Thu May 18 2023 Pino Toscano <ptoscano@redhat.com> - 0:3.1.7-13
+- Conditionally run semanage only when SELinux is enabled (RHBZ#2196844)
 
 * Thu Nov 10 2022 Alba Hita Catala <ahitacat@redhat.com> 0:3.1.7-12
 - Set SELinux policy to permissive for rhcd_t module (RHBZ#2141443)
