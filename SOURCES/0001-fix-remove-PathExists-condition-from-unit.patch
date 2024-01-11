@@ -1,0 +1,26 @@
+From 844a3294541fb84bd742826ca8c110c05ad9b4fd Mon Sep 17 00:00:00 2001
+From: Link Dupont <link@sub-pop.net>
+Date: Mon, 31 Jan 2022 10:53:04 -0500
+Subject: [PATCH] fix: remove PathExists condition from unit
+
+The PathExists= directive in the Path section of the
+insights-client-results.path unit is unnecessary.
+
+Fixes: RHBZ#2022191
+(cherry picked from commit ec3502eaef144838bec85dfed497de7a404a66bf)
+---
+ data/systemd/insights-client-results.path.in | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/data/systemd/insights-client-results.path.in b/data/systemd/insights-client-results.path.in
+index be53998..928296b 100644
+--- a/data/systemd/insights-client-results.path.in
++++ b/data/systemd/insights-client-results.path.in
+@@ -13,7 +13,6 @@ Documentation=man:insights-client(8)
+ PartOf=insights-client.timer
+ 
+ [Path]
+-PathExists=@pkgsysconfdir@/.lastupload
+ PathModified=@pkgsysconfdir@/.lastupload
+ 
+ [Install]
